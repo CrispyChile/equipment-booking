@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Equipment Rental Booking</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f6f6f6;
+      margin: 0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 950px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
+    }
+    h1 { text-align: center; }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+
+    select, button, input {
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      flex: 1;
+      min-width: 180px;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: #007bff;
+      color: white;
+    }
+    button:hover { background: #0056b3; }
+
+    .calendar {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 6px;
+    }
+
+    .day-header {
+      font-weight: bold;
+      text-align: center;
+      padding: 10px 0;
+      background: #222;
+      color: white;
+      border-radius: 6px;
+    }
+
+    .day {
+      background: #fff;
+      padding: 15px;
+      border-radius: 6px;
+      text-align: center;
+      border: 1px solid #ddd;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .day:hover { background: #f0f8ff; }
+
+    .disabled {
+      background: #eee;
+      color: #999;
+      cursor: not-allowed;
+    }
+
+    .booked {
+      background: #ff4d4d;
+      color: white;
+      cursor: not-allowed;
+    }
+
+    .selected {
+      background: #28a745;
+      color: white;
+    }
+
+    .month-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+    }
+
+    .month-controls button {
+      background: #444;
+    }
+
+    .month-controls button:hover {
+      background: #222;
+    }
+
+    .info-box {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 6px;
+      background: #f2f2f2;
+      font-size: 16px;
+    }
+
+    .price-line {
+      margin-top: 6px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <h1>Book Equipment Rental</h1>
+
+    <div class="controls">
+      <select id="equipmentSelect">
+        <option value="Stump Grinder">Stump Grinder</option>
+      </select>
+
+      <input type="text" id="customerName" placeholder="Customer Name" />
+      <input type="text" id="customerPhone" placeholder="Customer Phone" />
+      <input type="email" id="customerEmail" placeholder="Customer Email (optional)" />
+
+      <button id="confirmBookingBtn">Reserve + Pay Deposit</button>
+    </div>
+
+    <div class="month-controls">
+      <button id="prevMonthBtn">⬅ Prev</button>
+      <h2 id="monthLabel"></h2>
+      <button id="nextMonthBtn">Next ➡</button>
+    </div>
+
+    <div class="calendar" id="calendarHeaders"></div>
+    <div class="calendar" id="calendarGrid"></div>
+
+    <div class="info-box">
+      <div><strong>Selected Range:</strong> <span id="selectedRange">None</span></div>
+      <div class="price-line"><strong>Total Days:</strong> <span id="totalDays">0</span></div>
+
+      <div class="price-line"><strong>Rental Type:</strong> <span id="rentalType">N/A</span></div>
+      <div class="price-line"><strong>Total Rental Price:</strong> $<span id="totalPrice">0</span></div>
+      <div class="price-line"><strong>Deposit Due Now:</strong> $<span id="depositDue">0</span></div>
+
+      <div class="price-line"><strong>Status:</strong> <span id="statusText">Ready</span></div>
+    </div>
+  </div>
+
+  <script>
+    // =============================
+    // STEP 1: PASTE YOUR SUPABASE API INFO HERE
+    // =============================
+    const SUPABASE_URL = "PASTE_YOUR_SUPABASE_URL_HERE";
+    const SUPABASE_ANON_KEY = "PASTE_YOUR_SUPABASE_ANON_KEY_HERE";
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    // =============================
+    // STEP 2: PASTE YOUR SQUARE PAYMENT LINKS HERE
+    // =============================
+    const squareDepositLinks = {
+      "Stump Grinder": {
+        daily: "https://square.link/u/PASTE_DAILY_DEPOSIT_LINK",
+        weekly: "https://square.link/u/PASTE_WEEKLY_DEPOSIT_LINK"
+      }
+    };
+
+    // =============================
+    // STEP 3: PRICING RULES
+    // =============================
+    const pricing = {
+      "Stump Grinder": {
+        dailyRate: 150,
+        weeklyRate: 450,
+        dailyDeposit: 50,
+        weeklyDeposit: 100
+      }
+    };
+
+    const headers = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+    const calendarHeaders = document.getElementById("calendarHeaders");
+    const calendarGrid = document.getElementById("calendarGrid");
+    const monthLabel = document.getElementById("monthLabel");
+
+    const equipmentSelect = document.getElementById("equipmentSelect");
+    const confirmBookingBtn = document.getElementById("confirmBookingBtn");
+
+    const customerNameInput = document.getElementById("customerName");
+    const customerPhoneInput = document.getElementById("customerPhone");
+    const customerEmailInput = document.getElementById("customerEmail");
+
+    const selectedRangeDisplay = document.getElementById("selectedRange");
+    const totalDaysDisplay = document.getElementById("totalDays");
+    const rentalTypeDisplay = document.getElementById("rentalType");
+    const totalPriceDisplay = document.getElementById("totalPrice");
+    const depositDueDisplay = document.getElementById("depositDue");
+    const statusText = document.getElementById("statusText");
+
+    let currentDate = new Date();
+    let startDate = null;
+    let endDate = null;
+    let cachedBookings = [];
+
+    function formatDate(date) {
+      const yyyy = date.getFullYear();
+      const mm = String(date.getMonth() + 1).padStart(2, "0");
+      const dd = String(date.getDate()).padStart(2, "0");
+      return `${yyyy}-${mm}-${dd}`;
+    }
+
+    function parseDate(dateString) {
+      const [yyyy, mm, dd] = dateString.split("-");
+      return new Date(yyyy, mm - 1, dd);
+    }
+
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
+    function calculateDays(start, end) {
+      const s = parseDate(start);
+      const e = parseDate(end);
+      return Math.round((e - s) / (1000 * 60 * 60 * 24)) + 1;
+    }
+
+    function getPricing(equipment, days) {
+      const p = pricing[equipment];
+      if (!p) return null;
+
+      if (days >= 7) {
+        return {
+          type: "WEEKLY",
+          total: p.weeklyRate,
+          deposit: p.weeklyDeposit
+        };
+      }
+
+      return {
+        type: "DAILY",
+        total: p.dailyRate * days,
+        deposit: p.dailyDeposit
+      };
+    }
+
+    function isBooked(dateString, equipment) {
+      return cachedBookings.some(b =>
+        b.equipment === equipment &&
+        dateString >= b.start_date &&
+        dateString <= b.end_date
+      );
+    }
+
+    function renderHeaders() {
+      calendarHeaders.innerHTML = "";
+      headers.forEach(day => {
+        const div = document.createElement("div");
+        div.className = "day-header";
+        div.textContent = day;
+        calendarHeaders.appendChild(div);
+      });
+    }
+
+    function updateSelectedRangeAndPrice() {
+      if (!startDate) {
+        selectedRangeDisplay.textContent = "None";
+        totalDaysDisplay.textContent = "0";
+        rentalTypeDisplay.textContent = "N/A";
+        totalPriceDisplay.textContent = "0";
+        depositDueDisplay.textContent = "0";
+        return;
+      }
+
+      if (!endDate) {
+        selectedRangeDisplay.textContent = startDate;
+        totalDaysDisplay.textContent = "1";
+
+        const equipment = equipmentSelect.value;
+        const calc = getPricing(equipment, 1);
+
+        if (calc) {
+          rentalTypeDisplay.textContent = calc.type;
+          totalPriceDisplay.textContent = calc.total;
+          depositDueDisplay.textContent = calc.deposit;
+        }
+        return;
+      }
+
+      selectedRangeDisplay.textContent = `${startDate} to ${endDate}`;
+
+      const days = calculateDays(startDate, endDate);
+      totalDaysDisplay.textContent = days;
+
+      const equipment = equipmentSelect.value;
+      const calc = getPricing(equipment, days);
+
+      if (calc) {
+        rentalTypeDisplay.textContent = calc.type;
+        totalPriceDisplay.textContent = calc.total;
+        depositDueDisplay.textContent = calc.deposit;
+      }
+    }
+
+    async function loadBookings() {
+      setStatus("Loading bookings...");
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("*");
+
+      if (error) {
+        console.error(error);
+        setStatus("ERROR loading bookings.");
+        return;
+      }
+
+      cachedBookings = data || [];
+      setStatus("Bookings loaded.");
+    }
+
+    function renderCalendar() {
+      calendarGrid.innerHTML = "";
+
+      const year = currentDate.getFullYear();
+      const month = currentDate.getMonth();
+      const equipment = equipmentSelect.value;
+
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+
+      monthLabel.textContent = firstDay.toLocaleString("default", { month: "long", year: "numeric" });
+
+      for (let i = 0; i < firstDay.getDay(); i++) {
+        const empty = document.createElement("div");
+        empty.className = "day disabled";
+        calendarGrid.appendChild(empty);
+      }
+
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const date = new Date(year, month, day);
+        const dateString = formatDate(date);
+
+        const div = document.createElement("div");
+        div.className = "day";
+        div.textContent = day;
+
+        if (isBooked(dateString, equipment)) {
+          div.classList.add("booked");
+        }
+
+        if (startDate && endDate) {
+          if (dateString >= startDate && dateString <= endDate) {
+            div.classList.add("selected");
+          }
+        } else if (startDate && dateString === startDate) {
+          div.classList.add("selected");
+        }
+
+        div.addEventListener("click", () => {
+          if (div.classList.contains("booked")) return;
+
+          if (!startDate) {
+            startDate = dateString;
+            endDate = null;
+          } else if (!endDate) {
+            if (dateString < startDate) {
+              endDate = startDate;
+              startDate = dateString;
+            } else {
+              endDate = dateString;
+            }
+          } else {
+            startDate = dateString;
+            endDate = null;
+          }
+
+          updateSelectedRangeAndPrice();
+          renderCalendar();
+        });
+
+        calendarGrid.appendChild(div);
+      }
+    }
+
+    async function bookingConflicts(equipment, start, end) {
+      for (let d = parseDate(start); d <= parseDate(end); d.setDate(d.getDate() + 1)) {
+        const ds = formatDate(d);
+        if (isBooked(ds, equipment)) return true;
+      }
+      return false;
+    }
+
+    confirmBookingBtn.addEventListener("click", async () => {
+      if (!startDate) {
+        alert("Select at least a start date.");
+        return;
+      }
+      if (!endDate) endDate = startDate;
+
+      const customerName = customerNameInput.value.trim();
+      const customerPhone = customerPhoneInput.value.trim();
+      const customerEmail = customerEmailInput.value.trim();
+      const equipment = equipmentSelect.value;
+
+      if (!customerName || !customerPhone) {
+        alert("Enter customer name and phone.");
+        return;
+      }
+
+      const days = calculateDays(startDate, endDate);
+      const calc = getPricing(equipment, days);
+
+      if (!calc) {
+        alert("Pricing not set for this equipment.");
+        return;
+      }
+
+      const paymentLinks = squareDepositLinks[equipment];
+      if (!paymentLinks) {
+        alert("Square payment links not configured.");
+        return;
+      }
+
+      const depositLink = calc.type === "WEEKLY"
+        ? paymentLinks.weekly
+        : paymentLinks.daily;
+
+      setStatus("Checking availability...");
+
+      const conflict = await bookingConflicts(equipment, startDate, endDate);
+      if (conflict) {
+        alert("Those dates are already booked.");
+        setStatus("Conflict detected.");
+        return;
+      }
+
+      setStatus("Saving reservation...");
+
+      const { data, error } = await supabase
+        .from("bookings")
+        .insert([{
+          equipment,
+          customer_name: customerName,
+          customer_phone: customerPhone,
+          customer_email: customerEmail || null,
+          start_date: startDate,
+          end_date: endDate,
+          rental_type: calc.type,
+          rental_days: days,
+          deposit_amount: calc.deposit,
+          total_price: calc.total,
+          payment_status: "PENDING_PAYMENT"
+        }])
+        .select();
+
+      if (error) {
+        console.error(error);
+        alert("Error saving booking.");
+        setStatus("Error saving booking.");
+        return;
+      }
+
+      const bookingId = data[0].id;
+
+      alert("Reservation saved. Redirecting to Square to pay deposit...");
+
+      window.location.href = depositLink + "?booking_id=" + bookingId;
+    });
+
+    document.getElementById("prevMonthBtn").addEventListener("click", () => {
+      currentDate.setMonth(currentDate.getMonth() - 1);
+      renderCalendar();
+    });
+
+    document.getElementById("nextMonthBtn").addEventListener("click", () => {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      renderCalendar();
+    });
+
+    equipmentSelect.addEventListener("change", () => {
+      startDate = null;
+      endDate = null;
+      updateSelectedRangeAndPrice();
+      renderCalendar();
+    });
+
+    async function init() {
+      renderHeaders();
+      await loadBookings();
+      renderCalendar();
+      updateSelectedRangeAndPrice();
+    }
+
+    init();
+  </script>
+</body>
+</html>
