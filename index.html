@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Equipment Rental Booking</title>
 
+  <!-- Supabase JS Library -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <style>
@@ -14,15 +15,20 @@
       margin: 0;
       padding: 20px;
     }
+
     .container {
-      max-width: 950px;
+      max-width: 1000px;
       margin: auto;
       background: white;
       padding: 20px;
-      border-radius: 10px;
-      box-shadow: 0px 2px 10px rgba(0,0,0,0.1);
+      border-radius: 12px;
+      box-shadow: 0px 2px 12px rgba(0,0,0,0.12);
     }
-    h1 { text-align: center; }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 20px;
+    }
 
     .controls {
       display: flex;
@@ -31,10 +37,10 @@
       margin-bottom: 20px;
     }
 
-    select, button, input {
-      padding: 10px;
+    select, input, button {
+      padding: 12px;
       font-size: 16px;
-      border-radius: 6px;
+      border-radius: 8px;
       border: 1px solid #ccc;
       flex: 1;
       min-width: 180px;
@@ -45,8 +51,30 @@
       border: none;
       background: #007bff;
       color: white;
+      font-weight: bold;
     }
-    button:hover { background: #0056b3; }
+
+    button:hover {
+      background: #0056b3;
+    }
+
+    .month-controls {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 15px;
+      gap: 10px;
+    }
+
+    .month-controls button {
+      background: #333;
+      flex: 0;
+      min-width: 120px;
+    }
+
+    .month-controls button:hover {
+      background: #111;
+    }
 
     .calendar {
       display: grid;
@@ -60,63 +88,54 @@
       padding: 10px 0;
       background: #222;
       color: white;
-      border-radius: 6px;
+      border-radius: 8px;
     }
 
     .day {
-      background: #fff;
+      background: white;
       padding: 15px;
-      border-radius: 6px;
+      border-radius: 8px;
       text-align: center;
       border: 1px solid #ddd;
       cursor: pointer;
       user-select: none;
+      font-weight: bold;
     }
 
-    .day:hover { background: #f0f8ff; }
+    .day:hover {
+      background: #eef6ff;
+    }
 
     .disabled {
       background: #eee;
       color: #999;
       cursor: not-allowed;
+      border: 1px solid #ddd;
     }
 
     .booked {
       background: #ff4d4d;
       color: white;
       cursor: not-allowed;
+      border: 1px solid #d10000;
     }
 
     .selected {
       background: #28a745;
       color: white;
-    }
-
-    .month-controls {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 15px;
-    }
-
-    .month-controls button {
-      background: #444;
-    }
-
-    .month-controls button:hover {
-      background: #222;
+      border: 1px solid #1b6e2d;
     }
 
     .info-box {
       margin-top: 20px;
       padding: 15px;
-      border-radius: 6px;
+      border-radius: 10px;
       background: #f2f2f2;
       font-size: 16px;
     }
 
-    .price-line {
-      margin-top: 6px;
+    .info-line {
+      margin-top: 8px;
     }
   </style>
 </head>
@@ -147,27 +166,31 @@
     <div class="calendar" id="calendarGrid"></div>
 
     <div class="info-box">
-      <div><strong>Selected Range:</strong> <span id="selectedRange">None</span></div>
-      <div class="price-line"><strong>Total Days:</strong> <span id="totalDays">0</span></div>
-
-      <div class="price-line"><strong>Rental Type:</strong> <span id="rentalType">N/A</span></div>
-      <div class="price-line"><strong>Total Rental Price:</strong> $<span id="totalPrice">0</span></div>
-      <div class="price-line"><strong>Deposit Due Now:</strong> $<span id="depositDue">0</span></div>
-
-      <div class="price-line"><strong>Status:</strong> <span id="statusText">Ready</span></div>
+      <div class="info-line"><strong>Selected Range:</strong> <span id="selectedRange">None</span></div>
+      <div class="info-line"><strong>Total Days:</strong> <span id="totalDays">0</span></div>
+      <div class="info-line"><strong>Rental Type:</strong> <span id="rentalType">N/A</span></div>
+      <div class="info-line"><strong>Total Rental Price:</strong> $<span id="totalPrice">0</span></div>
+      <div class="info-line"><strong>Deposit Due Now:</strong> $<span id="depositDue">0</span></div>
+      <div class="info-line"><strong>Status:</strong> <span id="statusText">Ready</span></div>
     </div>
   </div>
 
   <script>
     // =============================
-    // STEP 1: PASTE YOUR SUPABASE API INFO HERE
+    // REQUIRED: PUT YOUR SUPABASE INFO HERE
     // =============================
     const SUPABASE_URL = "https://nqkxpdkemfntarcxixoc.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_dScUoqnYO_jo9m5QJWK2sg_mxRAYMXq";
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let supabase = null;
+    try {
+      supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    } catch (err) {
+      console.error("Supabase failed to initialize", err);
+    }
 
     // =============================
-    // STEP 2: PASTE YOUR SQUARE PAYMENT LINKS HERE
+    // SQUARE PAYMENT LINKS (DEPOSIT ONLY)
     // =============================
     const squareDepositLinks = {
       "Stump Grinder": {
@@ -177,7 +200,7 @@
     };
 
     // =============================
-    // STEP 3: PRICING RULES
+    // PRICING RULES
     // =============================
     const pricing = {
       "Stump Grinder": {
@@ -212,6 +235,10 @@
     let endDate = null;
     let cachedBookings = [];
 
+    function setStatus(msg) {
+      statusText.textContent = msg;
+    }
+
     function formatDate(date) {
       const yyyy = date.getFullYear();
       const mm = String(date.getMonth() + 1).padStart(2, "0");
@@ -222,10 +249,6 @@
     function parseDate(dateString) {
       const [yyyy, mm, dd] = dateString.split("-");
       return new Date(yyyy, mm - 1, dd);
-    }
-
-    function setStatus(msg) {
-      statusText.textContent = msg;
     }
 
     function calculateDays(start, end) {
@@ -312,6 +335,12 @@
     }
 
     async function loadBookings() {
+      if (!supabase) {
+        setStatus("Supabase not connected. Calendar still works locally.");
+        cachedBookings = [];
+        return;
+      }
+
       setStatus("Loading bookings...");
 
       const { data, error } = await supabase
@@ -320,7 +349,8 @@
 
       if (error) {
         console.error(error);
-        setStatus("ERROR loading bookings.");
+        setStatus("Error loading bookings (check Supabase URL/key).");
+        cachedBookings = [];
         return;
       }
 
@@ -444,6 +474,11 @@
         return;
       }
 
+      if (!supabase) {
+        alert("Supabase is not connected. Add your URL and anon key first.");
+        return;
+      }
+
       setStatus("Saving reservation...");
 
       const { data, error } = await supabase
@@ -465,14 +500,14 @@
 
       if (error) {
         console.error(error);
-        alert("Error saving booking.");
-        setStatus("Error saving booking.");
+        alert("Booking save failed. Check Supabase security policies.");
+        setStatus("Booking failed.");
         return;
       }
 
       const bookingId = data[0].id;
 
-      alert("Reservation saved. Redirecting to Square to pay deposit...");
+      alert("Reservation saved. Redirecting to Square deposit payment...");
 
       window.location.href = depositLink + "?booking_id=" + bookingId;
     });
